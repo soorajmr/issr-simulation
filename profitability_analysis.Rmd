@@ -1,0 +1,910 @@
+---
+title: "In-situ Redevelopment of Slums"
+subtitle: "A Simulation Study of Project Feasibility and Profitability"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+    number_sections: true
+    theme: spacelab
+
+bibliography: references.bib
+link-citations: yes
+linkcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, error = FALSE, message = FALSE, echo = FALSE)
+```
+
+```{r}
+source("distributions.R")
+source("simulation.R")
+source("plot.R")
+source("upsample.R")
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+
+large_city_list <- c("Delhi", "Mumbai", "Bangalore")
+
+data <- read_excel("data/ISSR_Data.xls",
+                    col_names = c("city", "slum_size", "slum_area",
+                                  "slum_density", "slum_land_shape"),
+                   sheet = 1,
+                   range = "A2:E6140") %>%  
+  filter_at(vars(-city), any_vars(!is.na(.))) %>% 
+  mutate(city_size = case_when(
+          city %in% large_city_list ~ "Large",
+          TRUE ~ "Small"
+         ),
+         city_size = factor(city_size)
+  ) 
+
+```
+
+# Introduction
+
+From the maps of slums from several Indian cities, we extracted the area of the slum and calculated a Land Shape Index (LSI) as a measure of how suitable the shape of a land parcel is for construction. For many slums we also have the count of households. From these, household density can be calculated. In addition to this base data, we use a bunch of variables related to the cost of construction, sale price or rent, and other real estate information. Using these, we simulate a large number of hypothetical slums in each city and calculate financial feasibility metrics for each. This data is not intended to be a representative sample of all the slums, but captures a good amount of the diversity in the characteristics of the slums and the state of the real estate market. As a result, what the simulation gives us is a broad range of possible scenarios across the cities with different kinds of financial outcomes if a redevelopment is attempted. This leads us to an understanding of the factors that drive financial feasibility. 
+
+---
+
+# Data Preparation
+
+The slum characteristics data contains slum area, LSI and slum size (number of households) for the cities Bangalore, Belgaum, Bellary, Bhopal, Davanagere, Delhi, Gulbarga, Hubli-Dharwad, Hyderabad, Mangalore, Mumbai, Shimoga, and Tumkur. Slum density can then be calculated by dividing the size by area. However, not all information is available for all the cities.
+
+## Missing data
+
+The plot below shows the fractions of missing data for different cities for the key variables slum LSI, area and size.
+
+```{r fig.height=4, fig.width=6}
+library(naniar)
+
+gg_miss_var(data %>% select(slum_size, slum_land_shape, slum_area, city),
+            facet = city, show_pct = TRUE)
+```
+
+### Bangalore
+
+There are many records with only the size, with both the LSI and area missing. Here we look at the distribution of the sizes for both these categories (other variables missing and not missing)
+
+
+```{r fig.width=8, fig.height=3}
+data %>% 
+  filter(city %in% c("Bangalore")) %>% 
+  bind_shadow() %>%
+  ggplot() +
+  geom_density(aes(x = slum_size, colour = slum_area_NA)) +
+  scale_x_continuous(trans = scales::trans_new("log", log10, function(x){10^x}),
+                     breaks = c(10, 50, 100, 500, 1000, 3000, 6000)) +
+  scale_colour_manual(name = "Missing Data Status",
+                      labels = c('!NA' = "Shape and Area Available",
+                                 'NA' = "Shape and Area Missing"),
+                      values = c('!NA' = "darkblue",
+                                 'NA' = "brown")) +
+  labs(x = "Slum Size (Number of Households)",
+       y = "Density",
+       title = "Distribution of Bangalore Slum Sizes") +
+  theme_minimal()
+```
+
+There is a good overlap between the distributions for the missing and not missing categories.
+
+### Delhi
+
+For some cities, size is completely missing. For Delhi, we have size for a small number of records. Here we look at how the land shape and the size variables are distributed for the Delhi slums with and without the size variable.
+
+
+```{r fig.width=4, fig.height=3}
+facet_labeller <- c('!NA' = "Size Available", 'NA' = "Size Missing")
+
+data %>% 
+  filter(city %in% c("Delhi")) %>% 
+  bind_shadow() %>%
+  ggplot() +
+  geom_point(aes(x = log(slum_land_shape), y = log(slum_area)), alpha = 0.3) +
+  facet_wrap(~slum_size_NA, ncol = 1, labeller = labeller(slum_size_NA = facet_labeller)) +
+  xlab("Log of Land Shape Index") +
+  ylab("Log of Area") +
+  ggtitle("Delhi Slums: Availability of Size Information") +
+  theme_minimal()
+
+```
+
+## Imputation of Missing Data
+
+For multiple cities, slum size information is missing. We use a missing data imputation method to try and impute these values. To check whether data is missing at random, we could compare the distribution of the other variables for the part of the data for which the slum size information is missing with the part with the slum size information available. The plot below shows that there is a good degree of overlap between the two, although they are not perfectly aligned with each other.
+
+We use the nonparametric missing value imputation algorithm named missForest [@missForest]. This is known to be a very effective imputation method that requires very little fine-tuning.
+
+```{r fig.width=6, fig.height=4}
+data %>% 
+  mutate(
+    `Slum Size Information` = if_else(is.na(slum_size), "Missing", "Available")
+  ) %>% 
+  ggplot(aes(x = log10(slum_land_shape), y = log10(slum_area), 
+                 colour = `Slum Size Information`)) +
+  geom_point(alpha = 0.3, size = 1) +
+  geom_density_2d(adjust = c(0.7, 0.7), size = 1.5, alpha = 0.8) +
+  #scale_colour_manual(values = c("Missing" = "yellow", "Available" = "blue"))+
+  xlab("Log of LSI") +
+  ylab("Log of Area") +
+  ggtitle("Data with and without Size Information") +
+  theme_minimal()
+
+```
+
+
+### Validation of the Method
+
+To empirically validate the method missForest, We take the subset of the data with no missing values and do a random deletion of 20% of slum sizes from this data. Then we measure how correctly the algorithm is able to recover this data.
+
+
+```{r fig.width=8, fig.height=4}
+library(missForest)
+
+set.seed(100)
+
+rf_data <- data %>% 
+  drop_na() %>% 
+  mutate(
+    slum_size = log(slum_size),
+    slum_area = log(slum_area),
+    slum_land_shape = log(slum_land_shape)
+  )
+
+na_idx <- sample(nrow(rf_data), 0.20 * nrow(rf_data))
+na_data <- rf_data %>% select(-c(slum_density, city))
+na_data[na_idx, ]$slum_size <- NA
+
+imputed <- missForest(xmis = as.data.frame(na_data),
+                      mtry = ncol(na_data) - 1, ntree = 1000, nodesize = c(10, 5),
+                      sampsize = list(500, 200, 200, c(100, 100)))
+
+na_data <- imputed$ximp %>% 
+  mutate(
+    slum_size = exp(slum_size),
+    slum_area = exp(slum_area),
+    slum_land_shape = exp(slum_land_shape)
+  )
+
+rf_data <- rf_data %>%
+  mutate(
+    slum_size = exp(slum_size),
+    slum_area = exp(slum_area),
+    slum_land_shape = exp(slum_land_shape)
+  )
+  
+recovered_data <- tibble(actual = rf_data[na_idx, ]$slum_size,
+                         predicted = na_data[na_idx, ]$slum_size,
+                         city = rf_data[na_idx, ]$city)
+
+mae <- (recovered_data$predicted - recovered_data$actual) %>% abs() %>% mean() %>% round(2)
+
+p1 <- recovered_data %>% 
+  ggplot(aes(x = actual, y = predicted)) +
+  geom_point(alpha = 0.4) +
+  xlim(0, 800) + ylim(0, 800) +
+  #facet_wrap(~city, scales = "free") +
+  xlab("Actual Slum Size") +
+  ylab("Imputed Slum Size") +
+  geom_abline(intercept = 0, slope = 1, linetype="dotted") +
+  annotate(geom = 'text', x = 600, y = 600, 
+             label = paste("MAE:", mae), 
+             color = 'blue') +
+  geom_text(x=1500, y=1450, label="45º line", angle=45, size=3, aes(family="mono")) +
+  theme_minimal()
+
+
+p2 <- recovered_data %>% 
+  ggplot(aes(x = actual, y = predicted)) +
+  geom_density_2d_filled(alpha = 0.9) +
+  xlim(0, 800) + ylim(0, 800) +
+  xlab("Actual Slum Size") +
+  ylab("Imputed Slum Size") +
+  geom_abline(intercept = 0, slope = 1, linetype="dotted") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+grid.arrange(p1, p2, nrow = 1, widths = c(1, 1.2)) #+ ggtitle("MissForest Imputation Test: Performance on 20% Holdout Data")
+```
+
+From the scatter plot, we see that for a majority of the slums, the imputed value of size is quite close to the actual value. The Mean Absolute Error of imputation is around 175. The heatmap tells us the majority of the points are close to the 45-degree line. Considering this to be sufficiently accurate for the purpose of this study, we proceed with doing this imputation on the entire data.
+
+```{r results='hide'}
+set.seed(100)
+
+imputed <- data %>% 
+  select(-c(slum_density, city)) %>% 
+  mutate(
+    slum_size = log(slum_size),
+    slum_area = log(slum_area),
+    slum_land_shape = log(slum_land_shape)
+  ) %>%
+  as.data.frame() %>% 
+  missForest(mtry = ncol(na_data) - 1, ntree = 1000, nodesize = c(10, 5),
+             sampsize = list(500, 200, 200, c(100, 100)))
+
+data_imputed <- data %>% 
+  select(city) %>% 
+  cbind(imputed$ximp) %>% 
+  mutate(
+    slum_size = exp(slum_size),
+    slum_area = exp(slum_area),
+    slum_land_shape = exp(slum_land_shape)
+  ) %>%
+  mutate(slum_density = slum_size / slum_area)
+```
+
+## Upsampling
+
+Another limitation in the data is that some of the smaller cities have only a small number of slums captured in the data set. In some cases, it reflects the ground reality that these cities have much fewer slums compared to the large urban centres. However, for this simulation study, it will be helpful to have more examples of slums for the smaller cities as well, so that we get a clearer picture of the impact of the slum characteristics on the financial outcome of the redevelopment. For instance, when we analyse the data for Mangalore, we do not expect to gain insights for Mangalore alone, but for all other cities that may have slums with the same characteristics as those in Mangalore.
+
+To handle this, we generate more "synthetic" data points for the smaller cities that are similar to the actual data for those cities, but with small variations. We use a popular oversampling method called Synthetic Minority Over-sampling TEchnique - SMOTE [@SMOTE].
+
+```{r}
+initial_data <- list(
+  small = data_imputed %>% 
+    filter(!city %in% large_city_list) %>% 
+    upsample_small_cities(),
+  
+  large = data_imputed %>%
+    filter(city %in% large_city_list)
+)
+```
+
+## Impact of Data Preparation
+
+Through the stages of data preparation, we fill in many missing values and generate new data for the cities that had fewer number of samples. After these steps, we do a visual inspection to understand how much the distributions of different variables were impacted by these. We expect to see that the distributions stay more or less stable through the stages of data preparation.
+
+```{r fig.height=5, fig.width=7}
+plot_data <- rbind(
+  data %>% mutate(`Data Processing` = "None"),
+  data_imputed %>% mutate(`Data Processing` = "Imputation"),
+  rbind(initial_data$small, initial_data$large) %>% 
+    mutate(`Data Processing` = "Imputation and Upsampling")
+) %>% 
+  mutate(
+    `Data Processing` = fct_relevel(`Data Processing`, c("None", "Imputation",
+                                                         "Imputation and Upsampling"))
+  )
+
+plot_density_ridges(plot_data, log10(slum_density), 
+                    "Log (base 10) of Slum Density", 
+                    "Distribution of Slum Density Through\n the Stages of Data Preparation")
+
+```
+
+```{r fig.height=5, fig.width=7}
+plot_density_ridges(plot_data, log10(slum_area), "Log (Base 10) of Slum Areas",
+                    "Distribution of Slum Area Through\n the Stages of Data Preparation")
+```
+
+```{r fig.height=5, fig.width=7}
+plot_density_ridges(plot_data, log10(slum_land_shape), "Log (Base 10) of LSI",
+                    "Distribution of LSI Through the Stages of Data Preparation")
+```
+
+```{r}
+large <- generate_data(initial_data, "large") %>% 
+  calculate_profit("large") 
+
+small <- generate_data(initial_data, "small") %>% 
+  calculate_profit("small")
+```
+
+---
+
+# Simulation Results
+
+We simulate 5000 data points for each city. Each of these simulated points represents a unique scenario of in-situ redevelopment. If all the households cannot be accommodated in the total buildable area, we mark the project as infeasible upfront. If redevelopment is feasible, we we go ahead and calculate the financial feasibility metric. In the case of sale of premium housing, the metric is the internal rate of return (IRR) of the promoter, and for renting of commercial buildings, it is Net Present Value (NPV).
+
+## Distribution of variables
+
+### Overall distribution
+
+This plot shows the range of values each of the variables take after the simulation, for each city.
+
+```{r fig.height=10, fig.width=12}
+library(ggthemes)
+
+distrib_cols1 <- c("Households" = "slum_size", 
+                  "Area (Sqm)" = "slum_area",
+                  "LSI" = "slum_land_shape")
+
+distrib_cols2 <- c("Redeveloped House Size" =  "redev_house_size",
+                  "Redevelopment Construction Cost" =  "constr_cost_redev",
+                  "Premium Housing Construction Cost" =  "constr_cost_prem_housing",
+                  "Sale Price" =  "sale_price_building",
+                  "TDR Sale Price" =  "sale_price_rights",
+                  "Transit Accommodation Cost" =  "cost_transit_accommodation",
+                  "Land Acquisition Cost Multiplier" =  "cost_land_acq_multiplier",
+                  "FAR" =  "floor_area_ratio")
+
+distrib_cols <- c(distrib_cols1, distrib_cols2)
+
+cities <- small %>% 
+    rbind(large) %>%
+    group_by(city) %>%
+    summarise(mean_density = mean(slum_density, na.rm = TRUE))
+
+sim_distribs <- small %>% 
+  rbind(large) %>%
+  select(c("city", "city_size", distrib_cols)) %>% 
+  pivot_longer(cols = names(distrib_cols), names_to = "variable") %>% 
+  inner_join(cities, by = "city") %>% 
+  mutate(city = reorder(city, -mean_density))
+  
+sim_distribs %>% 
+  filter(variable %in% names(distrib_cols1)) %>%
+  ggplot() +
+  geom_histogram(aes(x = value)) +
+  scale_x_continuous(trans = "log10", labels = function(x){signif(x)}) +
+  facet_wrap(~ city * variable, ncol = length(distrib_cols1) * 3, scales = "free_x", 
+             labeller = function (labels) {
+               labels <- lapply(labels, as.character)
+               list(do.call(paste, c(labels, list(sep = "\n"))))
+             }) +
+  labs(x = "Value of the Variable",
+    y = "Count of Simulated Data Points",
+    title = "Histograms of Slum Characterestic Variables in the Simulated Data",
+    caption = "\tNote 1: The X-axis is displayed in a log (base 10) scale to show the pattern clearly\nNote 2: The plotted data include the additional samples generated by data imputation and oversampling, in addition to the actual observations") +
+  theme_hc() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        strip.text.x = element_text(size = 8),
+        plot.caption = element_text(hjust = 0)) 
+```
+
+
+The below plots show the distributions for the two categories of cities:
+
+
+```{r fig.height=3, fig.width=8}
+sim_distribs <- small %>% 
+  rbind(large) %>%
+  select(c("city_size", distrib_cols)) %>% 
+  pivot_longer(cols = names(distrib_cols), names_to = "variable")
+
+sim_distribs %>% 
+  filter(variable %in% names(distrib_cols1)) %>%
+  mutate(city_size = if_else(city_size == "Large", "Larger Cities", "Smaller Cities")) %>% 
+  rbind(tibble(city_size = "Smaller Cities", variable = "LSI", value = 1)) %>% 
+  rbind(tibble(city_size = "Smaller Cities", variable = "Households", value = 5000)) %>% 
+  ggplot() +
+  geom_density(aes(x = value, colour = city_size, linetype = city_size), lwd = 1.5) +
+  scale_x_continuous(trans = "log10", labels = function(x){signif(x)}) +
+  facet_wrap(~ variable, ncol = 3, scales = "free", 
+             labeller = function (labels) {
+               labels <- lapply(labels, as.character)
+               list(do.call(paste, c(labels, list(sep = "\n"))))
+             }) +
+  labs(x = "Value of the Variable",
+    y = "Probability Density\n(Normalised Count)",
+    #title = "Histograms of Slum Characteristic Variables in the Simulated Data",
+    caption = "\tNote 1: The X-axis is displayed in a log (base 10) scale to show the pattern clearly\nNote 2: The plotted data include the additional samples generated by data imputation and oversampling,\n\tin addition to the actual observations") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1),
+        strip.text.x = element_text(size = 8),
+        plot.caption = element_text(hjust = 0),
+        legend.title = element_blank()) 
+
+```
+
+```{r fig.height=3, fig.width=14}
+sim_distribs %>% 
+  filter(variable %in% names(distrib_cols2)) %>% 
+  mutate(city_size = if_else(city_size == "Large", "Larger Cities", "Smaller Cities")) %>% 
+  ggplot() +
+  geom_density(aes(x = value, colour = city_size, linetype = city_size), lwd = 1.5, alpha = 0.4) +
+  scale_x_continuous(labels = scales::comma) +
+  #scale_y_continuous(labels = scales::comma) +
+  facet_wrap(~variable, ncol = length(distrib_cols2), scales = "free", 
+             labeller = function (labels) {
+               labels <- lapply(labels, as.character)
+               list(do.call(paste, c(labels, list(sep = ": \n")))) %>% label_wrap_gen(16)()
+             }) +
+  labs(x = "Value of the Variable",
+    y = "Probability Density\n(Normalised Count)",
+    #title = "Histograms of Real Estate and Regulatory Variables in the Simulated Data"
+    ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        strip.text.x = element_text(size = 8),
+        legend.title = element_blank()) 
+
+```
+
+
+### Distribution by outcome
+
+This plot shows the distribution of the variables by the financial feasibility and profitability. 
+
+
+```{r fig.height=25, fig.width=16}
+names(distrib_cols1) <- paste(names(distrib_cols1), "(Log)")
+distrib_cols <- c(distrib_cols1, distrib_cols2)
+
+sim_distribs <- small %>% 
+  rbind(large) %>%
+  mutate_at(as.vector(distrib_cols1), log10) %>% 
+  select(c("city", "city_size", "infeasible", "profit_sale", "irr_sale", distrib_cols)) %>% 
+  pivot_longer(cols = names(distrib_cols), names_to = "variable") %>% 
+  inner_join(cities, by = "city") %>% 
+  mutate(
+    outcome = case_when(
+      infeasible ~ "Infeasible",
+      irr_sale > 0.35 ~ "Profitable",
+      TRUE ~ "Not Profitable"),
+    city = reorder(city, -mean_density)
+  )
+
+sim_distribs %>% 
+  ggplot() +
+  geom_density(aes(x = value, colour = outcome), alpha = 0.9) +
+  scale_colour_manual(values = c("black", "#D55E00", "#009E73")) +
+  scale_x_continuous(labels = scales::comma) +
+  facet_wrap(~city * variable, ncol = length(distrib_cols), scales = "free",
+             labeller = function (labels) {
+               labels <- lapply(labels, as.character)
+               list(do.call(paste, c(labels, list(sep = ":\n")))) %>% label_wrap_gen(18)()
+             }) +
+  theme_hc() +
+  labs(x = "Values of the Variables",
+       y = "Probability Density",
+       title = "Distribution of Variables by Financial Outcome",
+       caption = "Note: The curves shown are smoothened versions of the histograms of the variables. Y axis is probability density. These values are omitted from the graph as only the relative shapes are important in this context.") +
+  guides(colour = guide_legend(title="Redevelopment Outcome")) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
+        strip.text.x = element_text(size = 8)) 
+```
+
+We also look at the combined plots for the two categories of cities:
+
+```{r fig.height=5, fig.width=15}
+sim_distribs %>% 
+  mutate(city_size = if_else(city_size == "Large", "Larger Cities: ", "Smaller Cities: ")) %>%
+  ggplot() +
+  geom_density(aes(x = value, colour = outcome, linetype = outcome), lwd = 1.3, alpha = 0.8) +
+  scale_colour_manual(values = c("black", "#D55E00", "#009E73")) +
+  scale_x_continuous(labels = scales::comma) +
+  #guides(linetype = FALSE) +
+  facet_wrap(~city_size * variable, ncol = length(distrib_cols), scales = "free",
+             labeller = function (labels) {
+               labels <- lapply(labels, as.character)
+               list(do.call(paste, c(labels, list(sep = "\n")))) %>% label_wrap_gen(16)()
+             }) +
+  theme_minimal() +
+  labs(x = "Values of the Variables",
+       y = "Probability Density",
+       #title = "Distribution of Variables by Financial Outcome",
+       caption = "\tNote: The curves shown are smoothened versions of the histograms of the variables. Y axis is probability density. These values are omitted from the graph as only the relative shapes are important in this context.") +
+  guides(colour = guide_legend(title="Redevelopment Outcome"),
+         linetype = guide_legend(title="Redevelopment Outcome")) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
+        strip.text.x = element_text(size = 8),) 
+```
+
+## Profitability Regions
+
+When we consider multiple variables that influence financial feasibility, it is possible to think of ranges or regions of the values of these variables that are associated with higher chances of profitability. 
+
+### Sale Scenario
+
+We show how the profitable, infeasible and the non-profitable cases are distributed for the scenario of redevelopment leading to the sale of premium housing. The below plot shows the 5% trimmed intervals of multiple variables for the three situations.
+
+```{r fig.height=12, fig.width=12}
+var_intervals <- large %>% 
+  rbind(small) %>% 
+  get_var_limits_sale(irr_sale, 0.35)
+
+var_intervals %>% 
+    plot_errorbars()
+```
+
+Now we look at the patterns taking pairs of variables.
+
+#### Population Density and Land Shape Index
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  mutate(
+    log_slum_density = log10(slum_density),
+    log_slum_land_shape = log10(slum_land_shape)
+  ) %>% 
+  profitabe_range_scatter_sale(log_slum_density, log_slum_land_shape)
+
+```
+
+
+#### Cost of Construction and Land Shape Index
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_sale(slum_land_shape, constr_cost_prem_housing)
+
+```
+
+
+#### Cost of Construction and Population Density
+
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_sale(slum_density, constr_cost_prem_housing)
+```
+
+#### Sale Price and Population Density
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_sale(slum_density, sale_price_building)
+
+```
+
+#### Sale Price and Land Shape Index
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_sale(slum_land_shape, sale_price_building)
+```
+
+#### Price of Transferrable Rights and Land Shape Index
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_sale(slum_land_shape, sale_price_rights)
+```
+
+### Rent Scenario
+
+Non-profitable, infeasible and profitable assuming rental of commercial buildings. Net present value (NPV) is used as a measure of profitability.
+
+```{r fig.height=12, fig.width=12}
+var_intervals <- large %>% 
+  rbind(small) %>% 
+  get_var_limits_rent()
+
+var_intervals %>% 
+    plot_errorbars()
+```
+
+#### Land Shape and Rent
+
+```{r fig.height=8, fig.width=12}
+small %>%
+  rbind(large) %>% 
+  profitabe_range_scatter_rent(slum_land_shape, commercial_rent)
+```
+
+#### Population Density and Rent
+
+```{r fig.height=8, fig.width=12}
+small %>%
+  rbind(large) %>% 
+  profitabe_range_scatter_rent(slum_density, commercial_rent)
+```
+
+#### Land Shape and Price of Transferrable Rights
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_rent(slum_land_shape, sale_price_rights)
+```
+
+#### Land Shape and Cost of Construction
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_rent(slum_land_shape, constr_cost_commercial)
+```
+
+#### Population Density and Cost of Construction
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_rent(slum_density, constr_cost_commercial)
+```
+
+#### Rent and Cost of Construction
+
+```{r fig.height=8, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  profitabe_range_scatter_rent(commercial_rent, constr_cost_commercial)
+```
+
+## Decision Trees
+
+To assess the impact of different variables on the financial feasibility, we fit a decision tree model to the data and visualise the decision points in the tree. A sample of size 500 from each of the three outcomes are used to fit the decision tree. A single decision tree cannot capture all the intricacies in the data, but it gives us an approximate picture of the major patterns. The terminal nodes of the tree are integrated with a heatmap indicating the range of the values of the variables at different regions of financial feasibility. This is done using *treeheatr*, an R package for interpretable decision tree visualizations [@le2020treeheatr]. For fitting the decision tree, we use the R package *rpart* [@therneau2015package].
+
+### Smaller Cities
+
+#### Sale
+
+```{r fig.height=8, fig.width=12}
+library(rpart)
+
+plot_tree_sale <- function(data) { 
+  set.seed(50)
+  
+  data_sample <- data %>% 
+    mutate(
+      `Redevelopment Outcome` = if_else(irr_sale > 0.35 & !infeasible, "Profitable",
+                                   if_else(!infeasible, "Not Profitable", "Infeasible"))
+    ) %>% 
+    group_by(`Redevelopment Outcome`) %>% 
+    sample_n(500) %>% # Sample equally from each group
+    ungroup() %>% 
+    select(
+      `Redevelopment Outcome`,
+      "LSI" = slum_land_shape,
+      "Density" = slum_density,
+      "FAR" = floor_area_ratio,
+      "Constr. Cost" = constr_cost_prem_housing,
+      "Sale Price" = sale_price_building,
+      "TDR Price" = sale_price_rights
+    )
+    
+  rpart_fit <- rpart(`Redevelopment Outcome` ~ ., data = data_sample,
+                     method = "class", 
+                     control = rpart.control(minsplit = 5, minbucket = 5, cp = 0.005))
+    
+  plot_heat_tree(partykit::as.party(rpart_fit))
+}
+
+plot_tree_sale(small)
+```
+
+#### Rent
+
+```{r fig.height=8, fig.width=12}
+plot_tree_rent <- function(data) { 
+  set.seed(50)
+  
+  data_sample <- data %>% 
+    mutate(
+      `Redevelopment Outcome` = if_else(npv_rent > 0 & !infeasible, "Profitable",
+                                    if_else(!infeasible, "Not Profitable", "Infeasible"))
+    ) %>% 
+    group_by(`Redevelopment Outcome`) %>% 
+    sample_n(500) %>% # Sample equally from each group
+    ungroup() %>% 
+    select(
+      `Redevelopment Outcome`,
+      "LSI" = slum_land_shape,
+      "Density" = slum_density,
+      "FAR" = floor_area_ratio,
+      "Constr. Cost" = constr_cost_commercial,
+      "Rent" = commercial_rent,
+      "TDR Price" = sale_price_rights
+    )
+    
+  rpart_fit <- rpart(`Redevelopment Outcome` ~ ., data = data_sample,
+                     method = "class", 
+                     control = rpart.control(minsplit = 5, minbucket = 5, cp = 0.005))
+    
+  plot_heat_tree(partykit::as.party(rpart_fit))
+}
+
+plot_tree_rent(small)
+```
+
+
+### Larger Cities
+
+#### Sale
+
+```{r fig.height=8, fig.width=12}
+plot_tree_sale(large)
+```
+
+#### Rent
+
+```{r fig.height=8, fig.width=12}
+plot_tree_rent(large)
+```
+
+### Decision Rule Learning
+
+An alternative to the decision trees for explaining the pattern involving multiple covariates and an outcome would be a rule learning algorithm. Below we show the results of running the RIPPER (repeated incremental pruning to produce error reduction) algorithm on the data for large cities. 
+
+For more details on the method, see: https://christophm.github.io/interpretable-ml-book/rules.html
+
+
+```{r}
+set.seed(42)
+library(RWeka)
+
+model_data <- large %>% 
+  mutate(fin_outcome = factor(case_when(
+    infeasible ~ "infeasible",
+    irr_sale > 0.35 ~ "profitable",
+    TRUE ~ "not profitable"
+  ))) %>% 
+  dplyr::select(fin_outcome, irr_sale, slum_land_shape, slum_density, floor_area_ratio,
+         constr_cost_prem_housing, sale_price_building, sale_price_rights,
+         additional_hh, redev_house_size, constr_cost_redev, slum_size,
+         cost_land_acq_multiplier) %>% 
+  sample_n(1000)
+
+ripper <- JRip(fin_outcome ~ ., data = model_data %>% dplyr::select(-irr_sale))
+#part <- PART(fin_outcome ~ ., data = model_data %>% dplyr::select(-irr_sale))
+summary(ripper)
+ripper
+
+```
+
+## Sensitivity
+
+We look at how sensitive profitability is to changes in subsidies and FAR, by calculating the fraction of profitable projects in the simulation by keeping these two variables constant, at different levels.
+
+### Subsidies
+
+#### Rent, Large Cities
+
+```{r fig.height=4, fig.width=8}
+get_sensitivity <- function(data, rent_sale, city_type, 
+                             sensitivity_var, sensitivity_values) {
+  sensitivity_var <- enquo(sensitivity_var)
+  
+  cities <- data %>%
+    group_by(city) %>%
+    summarise(
+      median_density = median(slum_density),
+    )
+  
+  sim_data_list <- lapply(sensitivity_values, function(x) { 
+    data %>%
+      mutate(!!sensitivity_var := x) %>% 
+      calculate_profit(city_type) %>%
+      mutate(
+        profitable = case_when(
+          rent_sale == "rent" & npv_rent > 0 ~ 1,
+          rent_sale == "sale" & irr_sale > 0.35 ~ 1,
+          TRUE ~ 0
+        )
+      )  %>%
+      group_by(!!sensitivity_var, city) %>% 
+      summarise(profitable = mean(profitable))
+  })
+  
+  reduce(sim_data_list, rbind) %>% 
+    inner_join(cities, by = "city") %>% 
+    mutate(city = fct_reorder(city, median_density))
+}
+
+plot_sensitivity <- function(sim_data, sensitivity_var, label) {
+  sensitivity_var <- enquo(sensitivity_var)
+  
+  sim_data %>% 
+    ggplot(aes(x = !!sensitivity_var, y = profitable, colour = city)) +
+    geom_line() +
+    geom_point() +
+    scale_x_continuous(labels = scales::comma) +
+    scale_x_continuous(labels = scales::percent) +
+    scale_colour_brewer(palette = "Set2") +
+    labs(x = label, y = "Percentage of Profitable Projects",
+         title = paste0("Sensitivity Plot: ", label, " against Profitable Fraction")) +
+    theme_minimal()
+}
+
+sim_data <- get_sensitivity(large, "rent", "large", subsidy_pmay, seq(0, 1e6, 1e5))
+plot_sensitivity(sim_data, subsidy_pmay, "PMAY Subsidy")
+```
+
+#### Rent, Small Cities
+
+```{r fig.height=4, fig.width=8}
+sim_data <- get_sensitivity(small, "rent", "small", subsidy_pmay, seq(0, 1e6, 1e5))
+plot_sensitivity(sim_data, subsidy_pmay, "PMAY Subsidy")
+```
+
+#### Sale, Large Cities
+
+```{r fig.height=4, fig.width=8}
+sim_data <- get_sensitivity(large, "sale", "large", subsidy_pmay, seq(0, 1e6, 1e5))
+plot_sensitivity(sim_data, subsidy_pmay, "PMAY Subsidy")
+```
+
+
+#### Sale, Small Cities
+
+```{r fig.height=4, fig.width=8}
+sim_data <- get_sensitivity(small, "sale", "small", subsidy_pmay, seq(0, 1e6, 1e5))
+plot_sensitivity(sim_data, subsidy_pmay, "PMAY Subsidy")
+```
+
+### FAR
+
+#### Rent, Large Cities
+
+```{r fig.height=4, fig.width=8}
+sim_data <- get_sensitivity(large, "rent", "large", floor_area_ratio, seq(2, 6))
+plot_sensitivity(sim_data, floor_area_ratio, "FAR")
+```
+
+
+#### Rent, Small Cities
+
+```{r fig.height=4, fig.width=8}
+sim_data <- get_sensitivity(small, "rent", "small", floor_area_ratio, seq(2, 6))
+plot_sensitivity(sim_data, floor_area_ratio, "FAR")
+```
+
+#### Sale, Large Cities
+
+```{r fig.height=4, fig.width=8}
+sim_data <- get_sensitivity(large, "sale", "large", floor_area_ratio, seq(2, 6))
+plot_sensitivity(sim_data, floor_area_ratio, "FAR")
+```
+
+
+#### Sale, Small Cities
+
+```{r fig.height=4, fig.width=8}
+sim_data <- get_sensitivity(small, "sale", "small", floor_area_ratio, seq(2, 6))
+plot_sensitivity(sim_data, floor_area_ratio, "FAR")
+```
+
+#### Combined, Sale
+
+```{r  fig.height=3, fig.width=7}
+rbind(get_sensitivity(small, "sale", "small", floor_area_ratio, seq(2, 6)),
+                  get_sensitivity(large, "sale", "large", floor_area_ratio, seq(2, 6))) %>% 
+  mutate(`City Size` = if_else(city %in% large_city_list, "Larger", "Smaller")) %>% 
+  group_by(floor_area_ratio, `City Size`) %>% 
+  mutate(profitable = mean(profitable)) %>%  # As the number of data points for each city is equal, 
+                                             # no weights needed.
+  ggplot(aes(x = floor_area_ratio, y = profitable, colour = `City Size`)) +
+    geom_line(aes(linetype = `City Size`), lwd = 1.0) +
+    geom_point() +
+    scale_x_continuous(labels = scales::comma) +
+    scale_y_continuous(labels = scales::percent) +
+    #scale_colour_brewer(palette = "Set2") +
+    labs(x = "FAR", y = "Profitable Projects (%)",
+         )+#title = "Sensitivity Plot: Profitable Fraction of Simulated Projects for Different Values of FAR") +
+    theme_minimal()
+```
+
+---
+
+# References {-}
+
+<div id="refs"></div>
+
+---
+
+---
+
+# Code and Data {.credits -}
+
+<style type="text/css">
+.credits {
+  font-size: 12px;
+  color: darkolivegreen;
+}
+</style>
+
+* This work is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Copyright: Swastik Harish and Sooraj Raveendran. 2021  
+
+* This report was prepared in R markdown. The source code and the data are available at https://github.com/soorajmr/issr-simulation. The code is under MIT licence.
+
+Report generated at: `r format(Sys.time(), '%d %B, %Y %I:%M %p')`
+
+---

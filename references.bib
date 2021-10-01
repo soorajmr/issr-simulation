@@ -1,0 +1,48 @@
+@article{missForest,
+    author = {Stekhoven, Daniel J. and Bühlmann, Peter},
+    title = "{MissForest—non-parametric missing value imputation for mixed-type data}",
+    journal = {Bioinformatics},
+    volume = {28},
+    number = {1},
+    pages = {112-118},
+    year = {2011},
+    month = {10},
+    abstract = "{Motivation: Modern data acquisition based on high-throughput technology is often facing the problem of missing data. Algorithms commonly used in the analysis of such large-scale data often depend on a complete set. Missing value imputation offers a solution to this problem. However, the majority of available imputation methods are restricted to one type of variable only: continuous or categorical. For mixed-type data, the different types are usually handled separately. Therefore, these methods ignore possible relations between variable types. We propose a non-parametric method which can cope with different types of variables simultaneously.Results: We compare several state of the art methods for the imputation of missing values. We propose and evaluate an iterative imputation method (missForest) based on a random forest. By averaging over many unpruned classification or regression trees, random forest intrinsically constitutes a multiple imputation scheme. Using the built-in out-of-bag error estimates of random forest, we are able to estimate the imputation error without the need of a test set. Evaluation is performed on multiple datasets coming from a diverse selection of biological fields with artificially introduced missing values ranging from 10\\% to 30\\%. We show that missForest can successfully handle missing values, particularly in datasets including different types of variables. In our comparative study, missForest outperforms other methods of imputation especially in data settings where complex interactions and non-linear relations are suspected. The out-of-bag imputation error estimates of missForest prove to be adequate in all settings. Additionally, missForest exhibits attractive computational efficiency and can cope with high-dimensional data.Availability: The ℝ package missForest is freely available from http://stat.ethz.ch/CRAN/.Contact:stekhoven@stat.math.ethz.ch; buhlmann@stat.math.ethz.ch}",
+    issn = {1367-4803},
+    doi = {10.1093/bioinformatics/btr597},
+    url = {https://doi.org/10.1093/bioinformatics/btr597},
+    eprint = {https://academic.oup.com/bioinformatics/article-pdf/28/1/112/583703/btr597.pdf},
+}
+
+@article{SMOTE,
+	author = {Chawla, Nitesh V. and Bowyer, Kevin W. and Hall, Lawrence O. and Kegelmeyer, W. Philip},
+	title = {SMOTE: Synthetic Minority over-Sampling Technique},
+	year = {2002},
+	issue_date = {January 2002},
+	publisher = {AI Access Foundation},
+	address = {El Segundo, CA, USA},
+	volume = {16},
+	number = {1},
+	issn = {1076-9757},
+	abstract = {An approach to the construction of classifiers from imbalanced datasets is described. A dataset is imbalanced if the classification categories are not approximately equally represented. Often real-world data sets are predominately composed of "normal" examples with only a small percentage of "abnormal" or "interesting" examples. It is also the case that the cost of misclassifying an abnormal (interesting) example as a normal example is often much higher than the cost of the reverse error. Under-sampling of the majority (normal) class has been proposed as a good means of increasing the sensitivity of a classifier to the minority class. This paper shows that a combination of our method of oversampling the minority (abnormal)cla ss and under-sampling the majority (normal) class can achieve better classifier performance (in ROC space)tha n only under-sampling the majority class. This paper also shows that a combination of our method of over-sampling the minority class and under-sampling the majority class can achieve better classifier performance (in ROC space)t han varying the loss ratios in Ripper or class priors in Naive Bayes. Our method of over-sampling the minority class involves creating synthetic minority class examples. Experiments are performed using C4.5, Ripper and a Naive Bayes classifier. The method is evaluated using the area under the Receiver Operating Characteristic curve (AUC)and the ROC convex hull strategy.},
+	journal = {J. Artif. Int. Res.},
+	month = jun,
+	pages = {321–357},
+	url = {https://www.jair.org/index.php/jair/article/view/10302/24590},
+	numpages = {37}
+}
+
+@article{le2020treeheatr,
+  title={treeheatr: an R package for interpretable decision tree visualizations},
+  author={Le, Trang T and Moore, Jason H},
+  journal={Bioinformatics},
+  year={2020},
+  doi="10.1093/bioinformatics/btaa662"
+}
+
+@article{therneau2015package,
+  title={Package ‘rpart’},
+  author={Therneau, Terry and Atkinson, Beth and Ripley, Brian},
+  journal={CRAN documentation: https://cran.r-project.org/package=rpart},
+  year={2019}
+}
