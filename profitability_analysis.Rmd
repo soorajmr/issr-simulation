@@ -241,9 +241,9 @@ data_imputed <- data %>%
 
 ## Upsampling
 
-Another limitation in the data is that some of the smaller cities have only a small number of slums captured in the data set. In some cases, it reflects the ground reality that these cities have much fewer slums compared to the large urban centres. However, for this simulation study, it will be helpful to have more examples of slums for the smaller cities as well, so that we get a clearer picture of the impact of the slum characteristics on the financial outcome of the redevelopment. For instance, when we analyse the data for Mangalore, we do not expect to gain insights for Mangalore alone, but for all other cities that may have slums with the same characteristics as those in Mangalore.
+Another limitation in the data is that some of the Small Cities have only a small number of slums captured in the data set. In some cases, it reflects the ground reality that these cities have much fewer slums compared to the large urban centres. However, for this simulation study, it will be helpful to have more examples of slums for the Small Cities as well, so that we get a clearer picture of the impact of the slum characteristics on the financial outcome of the redevelopment. For instance, when we analyse the data for Mangalore, we do not expect to gain insights for Mangalore alone, but for all other cities that may have slums with the same characteristics as those in Mangalore.
 
-To handle this, we generate more "synthetic" data points for the smaller cities that are similar to the actual data for those cities, but with small variations. We use a popular oversampling method called Synthetic Minority Over-sampling TEchnique - SMOTE [@SMOTE].
+To handle this, we generate more "synthetic" data points for the Small Cities that are similar to the actual data for those cities, but with small variations. We use a popular oversampling method called Synthetic Minority Over-sampling TEchnique - SMOTE [@SMOTE].
 
 ```{r}
 initial_data <- list(
@@ -321,7 +321,7 @@ distrib_cols2 <- c("Redeveloped House Size" =  "redev_house_size",
                   "Sale Price" =  "sale_price_building",
                   "TDR Sale Price" =  "sale_price_rights",
                   "Transit Accommodation Cost" =  "cost_transit_accommodation",
-                  "Land Acquisition Cost Multiplier" =  "cost_land_acq_multiplier",
+                  "Cost Inflation Factor" =  "cost_inflation_factor",
                   "FAR" =  "floor_area_ratio")
 
 distrib_cols <- c(distrib_cols1, distrib_cols2)
@@ -370,9 +370,9 @@ sim_distribs <- small %>%
 
 sim_distribs %>% 
   filter(variable %in% names(distrib_cols1)) %>%
-  mutate(city_size = if_else(city_size == "Large", "Larger Cities", "Smaller Cities")) %>% 
-  rbind(tibble(city_size = "Smaller Cities", variable = "LSI", value = 1)) %>% 
-  rbind(tibble(city_size = "Smaller Cities", variable = "Households", value = 5000)) %>% 
+  mutate(city_size = if_else(city_size == "Large", "Big Cities", "Small Cities")) %>% 
+  rbind(tibble(city_size = "Small Cities", variable = "LSI", value = 1)) %>% 
+  rbind(tibble(city_size = "Small Cities", variable = "Households", value = 5000)) %>% 
   ggplot() +
   geom_density(aes(x = value, colour = city_size, linetype = city_size), lwd = 1.5) +
   scale_x_continuous(trans = "log10", labels = function(x){signif(x)}) +
@@ -396,7 +396,7 @@ sim_distribs %>%
 ```{r fig.height=3, fig.width=14}
 sim_distribs %>% 
   filter(variable %in% names(distrib_cols2)) %>% 
-  mutate(city_size = if_else(city_size == "Large", "Larger Cities", "Smaller Cities")) %>% 
+  mutate(city_size = if_else(city_size == "Large", "Big Cities", "Small Cities")) %>% 
   ggplot() +
   geom_density(aes(x = value, colour = city_size, linetype = city_size), lwd = 1.5, alpha = 0.4) +
   scale_x_continuous(labels = scales::comma) +
@@ -467,7 +467,7 @@ We also look at the combined plots for the two categories of cities:
 
 ```{r fig.height=5, fig.width=15}
 sim_distribs %>% 
-  mutate(city_size = if_else(city_size == "Large", "Larger Cities: ", "Smaller Cities: ")) %>%
+  mutate(city_size = if_else(city_size == "Large", "Big Cities: ", "Small Cities: ")) %>%
   ggplot() +
   geom_density(aes(x = value, colour = outcome, linetype = outcome), lwd = 1.3, alpha = 0.8) +
   scale_colour_manual(values = c("black", "#D55E00", "#009E73")) +
@@ -633,7 +633,7 @@ small %>%
 
 To assess the impact of different variables on the financial feasibility, we fit a decision tree model to the data and visualise the decision points in the tree. A sample of size 500 from each of the three outcomes are used to fit the decision tree. A single decision tree cannot capture all the intricacies in the data, but it gives us an approximate picture of the major patterns. The terminal nodes of the tree are integrated with a heatmap indicating the range of the values of the variables at different regions of financial feasibility. This is done using *treeheatr*, an R package for interpretable decision tree visualizations [@le2020treeheatr]. For fitting the decision tree, we use the R package *rpart* [@therneau2015package].
 
-### Smaller Cities
+### Small Cities
 
 #### Sale
 
@@ -706,7 +706,7 @@ plot_tree_rent(small)
 ```
 
 
-### Larger Cities
+### Big Cities
 
 #### Sale
 
@@ -722,7 +722,7 @@ plot_tree_rent(large)
 
 ### Decision Rule Learning
 
-An alternative to the decision trees for explaining the pattern involving multiple covariates and an outcome would be a rule learning algorithm. Below we show the results of running the RIPPER (repeated incremental pruning to produce error reduction) algorithm on the data for large cities. 
+An alternative to the decision trees for explaining the pattern involving multiple covariates and an outcome would be a rule learning algorithm. Below we show the results of running the RIPPER (repeated incremental pruning to produce error reduction) algorithm on the data for big cities. 
 
 For more details on the method, see: https://christophm.github.io/interpretable-ml-book/rules.html
 
@@ -740,7 +740,7 @@ model_data <- large %>%
   dplyr::select(fin_outcome, irr_sale, slum_land_shape, slum_density, floor_area_ratio,
          constr_cost_prem_housing, sale_price_building, sale_price_rights,
          additional_hh, redev_house_size, constr_cost_redev, slum_size,
-         cost_land_acq_multiplier) %>% 
+         cost_inflation_factor) %>% 
   sample_n(1000)
 
 ripper <- JRip(fin_outcome ~ ., data = model_data %>% dplyr::select(-irr_sale))
@@ -756,7 +756,7 @@ We look at how sensitive profitability is to changes in subsidies and FAR, by ca
 
 ### Subsidies
 
-#### Rent, Large Cities
+#### Rent, Big Cities
 
 ```{r fig.height=4, fig.width=8}
 get_sensitivity <- function(data, rent_sale, city_type, 
@@ -815,7 +815,7 @@ sim_data <- get_sensitivity(small, "rent", "small", subsidy_pmay, seq(0, 1e6, 1e
 plot_sensitivity(sim_data, subsidy_pmay, "PMAY Subsidy")
 ```
 
-#### Sale, Large Cities
+#### Sale, Big Cities
 
 ```{r fig.height=4, fig.width=8}
 sim_data <- get_sensitivity(large, "sale", "large", subsidy_pmay, seq(0, 1e6, 1e5))
@@ -832,7 +832,7 @@ plot_sensitivity(sim_data, subsidy_pmay, "PMAY Subsidy")
 
 ### FAR
 
-#### Rent, Large Cities
+#### Rent, Big Cities
 
 ```{r fig.height=4, fig.width=8}
 sim_data <- get_sensitivity(large, "rent", "large", floor_area_ratio, seq(2, 6))
@@ -847,7 +847,7 @@ sim_data <- get_sensitivity(small, "rent", "small", floor_area_ratio, seq(2, 6))
 plot_sensitivity(sim_data, floor_area_ratio, "FAR")
 ```
 
-#### Sale, Large Cities
+#### Sale, Big Cities
 
 ```{r fig.height=4, fig.width=8}
 sim_data <- get_sensitivity(large, "sale", "large", floor_area_ratio, seq(2, 6))
@@ -867,7 +867,7 @@ plot_sensitivity(sim_data, floor_area_ratio, "FAR")
 ```{r  fig.height=3, fig.width=7}
 rbind(get_sensitivity(small, "sale", "small", floor_area_ratio, seq(2, 6)),
                   get_sensitivity(large, "sale", "large", floor_area_ratio, seq(2, 6))) %>% 
-  mutate(`City Size` = if_else(city %in% large_city_list, "Larger", "Smaller")) %>% 
+  mutate(`City Size` = if_else(city %in% large_city_list, "Big", "Small")) %>% 
   group_by(floor_area_ratio, `City Size`) %>% 
   mutate(profitable = mean(profitable)) %>%  # As the number of data points for each city is equal, 
                                              # no weights needed.
