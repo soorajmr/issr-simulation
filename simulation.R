@@ -48,7 +48,7 @@ generate_data <- function(initial_data, city_type, n = SIMULATION_COUNT) {
       sale_price_rights = gen_data_from_bins(sale_price_rights[[city_type]], n),
       cost_transit_accommodation = gen_data_from_bins(cost_transit_accommodation[[city_type]], n),
       subsidy_pmay = gen_data_constant(subsidy_pmay_current, n),
-      cost_land_acq_multiplier = gen_data_from_bins(cost_land_acq_multiplier, n),
+      cost_inflation_factor = gen_data_from_bins(cost_inflation_factor, n),
       commercial_rent = gen_data_from_bins(commercial_rent[[city_type]], n)
     ) %>% 
     ungroup()
@@ -122,7 +122,6 @@ calculate_profit <-  function(data, city_type) {
       slum_redev_housing_area = ifelse(total_buildable_area < slum_redev_housing_area,
                                        total_buildable_area, slum_redev_housing_area),
       tdr_generated = slum_redev_housing_area,
-      land_acq_cost_total = slum_size * (cost_land_acq_multiplier * sale_price_building) / 10^7,
       redev_housing_constr_cost_total = slum_redev_housing_area * constr_cost_redev / 10^7,
       transit_accom_cost_total = slum_size * cost_transit_accommodation / 10^7,
       revenue_sales = sale_price_building * commercial_construction_area / 10^7,
@@ -133,15 +132,17 @@ calculate_profit <-  function(data, city_type) {
       prem_housing_constr_cost_total = commercial_construction_area * 
         constr_cost_prem_housing / 10^7,
       total_revenue = revenue_sales + revenue_tdr + pmay_subsidy_total,
-      total_cost_sales = land_acq_cost_total + redev_housing_constr_cost_total +
+      total_cost_sales = redev_housing_constr_cost_total +
         prem_housing_constr_cost_total + transit_accom_cost_total,
+      total_cost_sales = total_cost_sales * (1 + cost_inflation_factor),
       profit_sale = (total_revenue - total_cost_sales) / total_cost_sales * 100, # Simplistic profit calculation
       irr_sale = calc_irr_sale(total_revenue, total_cost_sales), ## Considering cash flow
       
       ## NPV and IRR assuming rent inflow (Assuming rental from commercial buildings)
       commercial_constr_cost_total = commercial_construction_area * constr_cost_commercial / 10^7,
-      total_cost_rental = land_acq_cost_total + redev_housing_constr_cost_total + 
+      total_cost_rental = redev_housing_constr_cost_total + 
         commercial_constr_cost_total + transit_accom_cost_total,
+      total_cost_rental = total_cost_rental * (1 + cost_inflation_factor),
       
       initial_investment = revenue_tdr + pmay_subsidy_total - total_cost_rental,
       npv_rent = calc_npv(commercial_rent, commercial_construction_area, initial_investment),

@@ -55,7 +55,6 @@ sale_price_building = list(
                      density = c(0.07, 0.33, 0.32, 0.18, 0.1))
 )
 
-## TO-CHECK
 # Rs. per sq. metre
 sale_price_rights = list(
   small = data.frame(bin_low = c(0, 5000, 15000, 25000),
@@ -79,13 +78,11 @@ cost_transit_accommodation = list(
 # Per household
 subsidy_pmay_current = 100000
 
-## TO-CHECK
-# M'plier for per sqm sale rate
-# Assumption - cost of acquisition proportionate to demand
-cost_land_acq_multiplier = data.frame(
-  bin_low = c(0, 1, 2),
-  bin_high = c(1, 2, 3),
-  density = c(0.5, 0.3, 0.2)
+# Additional miscellaneous cost items on top of construction cost
+cost_inflation_factor = data.frame(
+  bin_low = c(0.15, 0.20, 0.25),
+  bin_high = c(0.2, 0.25, 0.30),
+  density = c(0.3, 0.6, 0.1)
 )
 
 # Average commercial rent (INR/sqm./month): small and large cities.
