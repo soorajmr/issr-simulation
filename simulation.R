@@ -111,11 +111,9 @@ calc_irr_sale <- function(revenue, cost) {
 calculate_profit <-  function(data, city_type) {
   data %>% 
     mutate(
-      slum_redev_housing_area = slum_size * (1 + additional_hh) * redev_house_size,
+      slum_redev_housing_area = round(slum_size * (1 + additional_hh), 0) * redev_house_size,
       penalty_for_shape = ifelse(slum_land_shape <= 0.03, 1, 35 * slum_land_shape),
-      total_buildable_area = slum_area / 
-        penalty_for_shape * 
-        floor_area_ratio * 10000,
+      total_buildable_area = slum_area / penalty_for_shape * floor_area_ratio * 10000,
       commercial_construction_area = if_else(total_buildable_area > slum_redev_housing_area,
                                              total_buildable_area - slum_redev_housing_area, 0),
       infeasible = ifelse(total_buildable_area < slum_size * redev_house_size, TRUE, FALSE),
@@ -126,7 +124,7 @@ calculate_profit <-  function(data, city_type) {
       transit_accom_cost_total = slum_size * cost_transit_accommodation / 10^7,
       revenue_sales = sale_price_building * commercial_construction_area / 10^7,
       revenue_tdr = sale_price_rights * tdr_generated / 10^7,
-      pmay_subsidy_total = slum_size * subsidy_pmay / 10^7,
+      pmay_subsidy_total = round(slum_size * (1 + additional_hh), 0) * subsidy_pmay / 10^7,
       
       ## Revenue and profit assuming sales of premium housing
       prem_housing_constr_cost_total = commercial_construction_area * 

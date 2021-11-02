@@ -842,6 +842,70 @@ sim_data <- get_sensitivity(small, "sale", "small", subsidy_pmay, seq(0, 1e6, 1e
 plot_sensitivity(sim_data, subsidy_pmay, "PMAY Subsidy")
 ```
 
+#### Summary of the impact of subsidy
+
+##### Net revenue per household 
+
+Excluding all the infeasible projects
+
+```{r fig.height=4, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  filter(!infeasible) %>% 
+  mutate(
+    city_size = if_else(city_size == "Large", "Big Cities", "Small Cities"),
+    diff_0 = (revenue_sales + revenue_tdr - total_cost_sales) / slum_size * 10^7,
+    diff_100000 = (revenue_sales + revenue_tdr - total_cost_sales) / slum_size * 10^7 + 1e5,
+    diff_500000 = (revenue_sales + revenue_tdr - total_cost_sales) / slum_size * 10^7 + 5e5
+  ) %>% 
+  pivot_longer(cols = starts_with("diff"),
+               names_to = "Subsidy",
+               names_transform = list(Subsidy = function(x){paste("Rs.", str_extract(x, "[0-9]+"))})) %>% 
+  mutate(
+    Scenario = paste(city_size, "Subsidy", Subsidy)
+  ) %>% 
+  ggplot() + 
+  geom_density(aes(x = value, colour = Subsidy), alpha = 0.9) +
+  facet_wrap(~city_size, ncol = 1, scales = "free_y") +
+  scale_x_continuous(label = comma, limits = c(-5e6, 1e6)) +
+  labs(x = "Per household net revenue") +
+  theme_minimal() 
+```
+
+##### IRR
+
+```{r fig.height=6, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  filter(!infeasible) %>% 
+  ggplot() + 
+  geom_histogram(aes(x = irr_sale, colour = subsidy_pmay_current, fill = as.factor(irr_sale > 0.35)), bins = 100) +
+  facet_wrap(~city_size, ncol = 1, scales = "free_y") +
+  scale_x_continuous(label = comma) +
+  labs(x = "IRR") +
+  theme_minimal() 
+```
+
+```{r fig.height=4, fig.width=12}
+small %>% 
+  rbind(large) %>% 
+  mutate(
+    city_size = if_else(city_size == "Large", "Big Cities", "Small Cities"),
+    diff_0 = (revenue_sales + revenue_tdr - total_cost_sales) / slum_area * 10^7,
+    diff_100000 = (revenue_sales + revenue_tdr - total_cost_sales) / slum_are * 10^7,
+    diff_500000 = (revenue_sales + revenue_tdr - total_cost_sales) / slum_area * 10^7
+  ) %>% 
+  pivot_longer(cols = starts_with("diff"),
+               names_to = "Subsidy",
+               names_transform = list(Subsidy = function(x){paste("Rs.", str_extract(x, "[0-9]+"))})) %>% 
+  ggplot() + 
+  geom_density(aes(x = value, fill = Subsidy), alpha = 0.3) +
+  facet_wrap(~city_size, ncol = 1, scales = "free_y") +
+  scale_x_continuous(label = comma, limits = c(-5e6, 5e6)) +
+  labs(x = "Per household net revenue") +
+  theme_minimal() 
+```
+
 ### FAR
 
 #### Rent, Big Cities
