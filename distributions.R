@@ -49,10 +49,10 @@ constr_cost_commercial = data.frame(
 sale_price_building = list(
   small = data.frame(bin_low = c(22000, 30000, 50000),
                      bin_high = c(30000, 50000, 100000),
-                     density = c(0.04, 0.84, 0.12)),
+                     density = c(0.04, 0.79, 0.17)),
   large = data.frame(bin_low = c(25000, 30000, 50000, 100000, 200000),
                      bin_high = c(30000, 50000, 100000, 200000, 450000),
-                     density = c(0.07, 0.33, 0.32, 0.18, 0.1))
+                     density = c(0.03, 0.31, 0.28, 0.21, 0.17))
 )
 
 # Rs. per sq. metre
