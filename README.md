@@ -36,10 +36,15 @@ It is clear from the figure above that to arrive at feasibility and profitabilit
 
 ## How do you make sense of the simulated data?
 
+Once we generate 1000s of simulated ISSR project scenarios as described above, the next task is to summarise this generated data in a way that brings out meaningful patterns. For most of the simulated redevelopment projects, a combination of factors would lead to their outcome. To get a picture of which factors are associated with our outcomes (feasibility and profitability), we fit a decision tree model to the simulation results. This serves as an approximate explanatory model that is simple enough to understand, but has the flexibility to capture the relevant patterns in the data. Given the data, a decision tree learning algorithm recursively partitions the input variables in an optimal order to construct a set of decision rules to predict the value of the target variable accurately.
+
+We fit the decision tree model using the R package [rpart](https://github.com/bethatkinson/rpart) and visualize it using the visualization package [treeheatr](https://doi.org/10.1093/bioinformatics/btaa662). The tree visualizations corresponding to the simulated data of small and big cities are shown below. The terminal nodes of the tree are integrated with a heatmap indicating the range of the values of the variables corresponding to that set of rules.
+
 ![image](https://user-images.githubusercontent.com/10476691/222952458-be3e44c9-55d3-4c0d-b8ba-e18a3acd7dfe.png)
+This figure shows a decision tree visualization of the factors affecting redevelopment outcome in small cities. To read the plot, trace down one path of the tree from the top. For example, consider the path on the extreme right-hand side for the small cities. This path illustrates that the set of slum redevelopment projects with slum density less than 166.2 households per hectare, construction cost of premium housing less than Rs. 40,684 per sqm., and a premium real-estate sale price-point of more than Rs. 41,461 per sqm. will by and large be profitable, as indicated by the lighter colour of the node at the bottom level of the tree. The actual calculated outcomes of all the simulated projects meeting these criteria are represented by the bar just below this node. The bars below this show the range of values of a few key input variables for the simulated projects associated with this decision path. Here, a darker colour corresponds to a lower numerical value and a lighter colour to higher numerical value. In our example discussed above, the profitable outcome can be seen to be driven by very high FAR, a high real-estate price-point and a reasonable TD R price, coupled with low construction cost, densities and LSI .
 
 ![image](https://user-images.githubusercontent.com/10476691/222952485-bfc151bb-1b4e-449e-aef5-2f51a1a9b6c7.png)
-
+This figure shows a decision tree visualization of the factors affecting redevelopment outcome in big cities;
 
 
 ## Implications and recommendations
